@@ -25,27 +25,67 @@ COLORS = {
 }
 
 FPS = 30
-WIDTH, HEIGHT = 640, 480
+WIDTH, HEIGHT = 1280, 960
 MAX_SPEED = 10
+ACCEL = 0.3
+SEEK_FORCE = 0.2
 SCREEN = pygame.display.set_mode((WIDTH, HEIGHT))
 APPROACH_RADIUS = 120
 FONT = pygame.font.Font(None, 20)
+ANT_COUNT = 100
 
 
 class Ant:
     def __init__(self, screen_width, screen_height):
-        self.pos = vec(randint(0, WIDTH), randint(0, HEIGHT))
-        self.vel =vec(MAX_SPEED,0).rotate(uniform(0, 360))
-        self.acc = vec(0,0)
+        self.pos = pygame.Vector2(randint(0, WIDTH), randint(0, HEIGHT))
+        self.vel = pygame.Vector2(MAX_SPEED,0).rotate(uniform(0, 360))
+        self.acc = pygame.Vector2(0,0)
         self.antWidth = 3
         self.antHeight = 10
 
     def follow_mouse(self):
         mpos = pygame.mouse.get_pos()
-        self.acc = (mpos - self.pos).normalize() * 0.5
+        vec_to_normalize = mpos - self.pos
+        if vec_to_normalize == pygame.Vector2(0, 0):
+            vec_to_normalize = pygame.Vector2(1, 0)
+        self.acc = vec_to_normalize.normalize() * ACCEL
+    
+    def seek(self, target):
+        vec_to_normalize = target - self.pos
+        if vec_to_normalize == pygame.Vector2(0, 0):
+            vec_to_normalize = pygame.Vector2(1, 0)
+        self.desired = vec_to_normalize.normalize() * MAX_SPEED
+        steer = (self.desired - self.vel)
+        if steer.length() > SEEK_FORCE:
+            steer.scale_to_length(SEEK_FORCE)
+        return steer
+    
+    def seek_with_approach(self, target):
+        vec_to_normalize = target - self.pos
+        distance = vec_to_normalize.length()
+        
+        # Handle the case where the vector to normalize is zero
+        if vec_to_normalize == pygame.Vector2(0, 0):
+            vec_to_normalize = pygame.Vector2(1, 0)
+
+        vec_to_normalize.normalize_ip()
+        self.desired = vec_to_normalize
+
+        if distance < APPROACH_RADIUS:
+            self.desired *= distance / APPROACH_RADIUS * MAX_SPEED
+        else:
+            self.desired *= MAX_SPEED
+
+        steer = self.desired - self.vel
+
+        if steer.length() > SEEK_FORCE:
+            steer.scale_to_length(SEEK_FORCE)
+
+        return steer
+
     
     def ant_color(self):
-        red_value = int(140 - (((self.vel.x + self.vel.y) // 2) * 14))
+        red_value = int(150 - ((abs((self.vel.x + self.vel.y)) // 2) * 16))
         if red_value > 255:
             red_value = 255
         if red_value < 0:
@@ -59,18 +99,19 @@ class Ant:
         pygame.draw.ellipse(ellipse_surface, self.ant_color(), (0, 0, self.antWidth, self.antHeight))
         # Rotate the ellipse
         angle = math.degrees(math.atan2(self.vel.y, self.vel.x))
-        rotated_surface = pygame.transform.rotate(ellipse_surface, angle + 90)
+        rotated_surface = pygame.transform.rotate(ellipse_surface, -angle - 90)
 
         # Get the rect of the rotated ellipse
         rotated_rect = rotated_surface.get_rect()
         rotated_rect.center = self.pos  # Set the center of the rotated ellipse
         
         # Draw the rotated ellipse onto the screen
-        screen.blit(rotated_surface, rotated_rect.topleft)
+        screen.blit(rotated_surface, rotated_rect)
 
     def update(self):
         #equations of motion
-        self.follow_mouse()
+        #self.follow_mouse()
+        self.acc = self.seek_with_approach(pygame.mouse.get_pos())
         self.vel += self.acc
         if self.vel.length() > MAX_SPEED:
             self.vel.scale_to_length(MAX_SPEED)
@@ -80,20 +121,21 @@ class Ant:
             self.pos.y = min(HEIGHT - 1, max(0, self.pos.y))
     
     def draw_vectors(self):
-        scale = 3
+        scale = 4
         # vel
         pygame.draw.line(SCREEN, COLORS["green"], self.pos, (self.pos + self.vel * scale), 4)
         # desired
-        pygame.draw.line(SCREEN, COLORS["red"], self.pos, (self.pos + vec(1,1) * scale), 4)
+        pygame.draw.line(SCREEN, COLORS["red"], self.pos, (self.pos + self.desired * scale), 4)
         # approach radius
         pygame.draw.circle(SCREEN, COLORS["white"], pygame.mouse.get_pos(), APPROACH_RADIUS, 1)
 
 
 def main():
-    
     pygame.display.set_caption("Ant Sim")
 
-    ants = [Ant(WIDTH, HEIGHT) for _ in range(2000)]  # Create a list of ant objects
+    ants = [Ant(WIDTH, HEIGHT) for _ in range(ANT_COUNT)]  # Create a list of ant objects
+    show_vectors = False
+    paused = False
 
     clock = pygame.time.Clock()
     running = True
@@ -102,6 +144,11 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_v:
+                    show_vectors = not show_vectors
+                if event.key == pygame.K_p:
+                    paused = not paused
 
         SCREEN.fill(COLORS["light_gray"])
         # Calculate FPS
@@ -111,13 +158,15 @@ def main():
         # Draw the FPS text on the screen at position (10, 10)
         SCREEN.blit(fps_text, (10, 10))
 
-        # Draw and update ants
-        for ant in ants:
-            ant.draw(SCREEN)
-            ant.update()
-            ant.draw_vectors()          
+        if not paused:
+            # Draw and update ants
+            for ant in ants:
+                ant.draw(SCREEN)
+                ant.update()
+                if show_vectors:
+                    ant.draw_vectors()          
 
-        pygame.display.update()
+            pygame.display.update()
 
     pygame.quit()
 
